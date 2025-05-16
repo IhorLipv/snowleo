@@ -2,43 +2,302 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>Snow Leopard Run</title>
-  <style>
-    body {
-      margin: 0;
-      background: #000;
-      overflow: hidden;
-      font-family: monospace;
-      color: white;
-      text-align: center;
-    }
-    #counter {
-      padding: 10px;
-      font-size: 18px;
-    }
-    canvas {
-      display: block;
-      margin: auto;
-      background: #111;
-      image-rendering: pixelated;
-    }
-  </style>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Snow Leopard Run</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=VT323&display=swap');
+  body { margin: 0; background: #000; overflow: hidden; }
+  canvas {
+    display: block;
+    margin: auto;
+    background: #1b1b1b;
+    image-rendering: pixelated;
+  }
+</style>
 </head>
 <body>
-  <div id="counter">Loading player count...</div>
-  <canvas id="gameCanvas" width="800" height="400"></canvas>
+<canvas id="gameCanvas" width="800" height="400"></canvas>
+<script>
+const canvas = document.getElementById("gameCanvas");
+const ctx = canvas.getContext("2d");
 
-  <script>
-    fetch('https://counterapi.dev/api/snowleopard-players')
-      .then(res => res.json())
-      .then(data => {
-        const counterDiv = document.getElementById("counter");
-        if (counterDiv) {
-          counterDiv.innerText = "Total unique players: " + data.count;
+const startImage = new Image();
+startImage.src = "https://imgur.com/V87la8E.png";
+const playAgainImage = new Image();
+playAgainImage.src = "https://i.imgur.com/50XPCBB.png";
+
+let isGameStarted = false;
+let isGameOver = false;
+let lives = 3;
+let score = 0;
+let speedMultiplier = 1;
+let win = false;
+let blinkTimer = 0;
+let blinkState = true;
+let bgX = 0;
+let currentStage = 0;
+let isJumping = false;
+let jumpPower = -16;
+let lastJump = 0;
+let leopardVisible = true;
+let blinkCount = 0;
+let shiftSpeed = 0;
+
+const gravity = 0.35;
+
+const backgrounds = [
+  "https://i.imgur.com/X6XtLJ1.png",
+  "https://i.imgur.com/igZchhK.png",
+  "https://imgur.com/FZFatrT.png"
+];
+const bgImages = backgrounds.map(src => {
+  const img = new Image();
+  img.src = src;
+  return img;
+});
+
+const leopard = {
+  x: 80,
+  y: 300,
+  width: 64,
+  height: 64,
+  dy: 0,
+  frameIndex: 0,
+  frameCount: 4,
+  img: new Image()
+};
+leopard.img.src = "https://i.imgur.com/wxYHUzZ.png";
+
+const collectibles = ["https://i.imgur.com/9AlXBCh.png"];
+const dangers = ["https://i.imgur.com/rKvzN9a.png", "https://i.imgur.com/3cJGb8C.png"];
+
+const collectibleImages = collectibles.map(src => { const img = new Image(); img.src = src; return img; });
+const dangerImages = dangers.map(src => { const img = new Image(); img.src = src; return img; });
+
+const items = [];
+
+function spawnItems() {
+  if (!isGameStarted || isGameOver) return;
+  for (let i = 0; i < 2; i++) {
+    const isCollectible = Math.random() < 0.35;
+    const img = isCollectible ? collectibleImages[0] : dangerImages[Math.floor(Math.random() * dangerImages.length)];
+    const amplitude = Math.random() * 80 + 40;
+    const speed = Math.random() * 0.05 + 0.02;
+    items.push({
+      x: 800 + i * 40,
+      baseY: 280,
+      y: 280,
+      width: 32,
+      height: 32,
+      isCollectible,
+      img,
+      t: 0,
+      amplitude,
+      speed
+    });
+  }
+}
+
+function resetGame() {
+  isGameOver = false;
+  isGameStarted = true;
+  lives = 3;
+  score = 0;
+  bgX = 0;
+  currentStage = 0;
+  leopard.y = 300;
+  leopard.dy = 0;
+  items.length = 0;
+  blinkCount = 0;
+  leopardVisible = true;
+}
+
+function drawStartScreen() {
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  ctx.drawImage(startImage, canvas.width / 2 - 150, canvas.height / 2 - 80, 300, 160);
+}
+
+function drawGameOverScreen() {
+  ctx.drawImage(playAgainImage, canvas.width / 2 - 150, canvas.height / 2 - 80, 300, 160);
+}
+
+function drawBackground() {
+  const bg = bgImages[currentStage % bgImages.length];
+  ctx.drawImage(bg, bgX, 0, canvas.width, canvas.height);
+  ctx.drawImage(bg, bgX + canvas.width, 0, canvas.width, canvas.height);
+  bgX -= 2;
+  if (bgX <= -canvas.width) bgX = 0;
+}
+
+function drawLeopard() {
+  if (!blinkState) return;
+  const frameCols = 2;
+  const frameRows = 2;
+  const frameWidth = leopard.img.width / frameCols;
+  const frameHeight = leopard.img.height / frameRows;
+  const col = leopard.frameIndex % frameCols;
+  const row = Math.floor(leopard.frameIndex / frameCols);
+  ctx.drawImage(
+    leopard.img,
+    col * frameWidth,
+    row * frameHeight,
+    frameWidth,
+    frameHeight,
+    leopard.x,
+    leopard.y,
+    leopard.width,
+    leopard.height
+  );
+}
+
+function drawItems() {
+  for (let item of items) {
+    ctx.drawImage(item.img, item.x, item.y, item.width, item.height);
+  }
+}
+
+
+function update() {
+  if (!isGameStarted || isGameOver) return;
+
+  leopard.dy += gravity;
+  leopard.y += leopard.dy;
+  if (leopard.y > 300) {
+    leopard.y = 300;
+    leopard.dy = 0;
+    isJumping = false;
+  }
+
+  if (shiftSpeed > 0) {
+    leopard.x += shiftSpeed;
+    shiftSpeed *= 0.9;
+    if (shiftSpeed < 0.1) shiftSpeed = 0;
+  }
+
+  // Прискорення
+  if (score >= 40) speedMultiplier = 2;
+  else if (score >= 20) speedMultiplier = 1.5;
+  else speedMultiplier = 1;
+
+  for (let item of items) {
+    item.x -= 2.5 * speedMultiplier;
+    if (!item.isCollectible) {
+      item.t += item.speed;
+      item.y = item.baseY + Math.sin(item.t) * (item.amplitude * 1.3); // більше коливання
+    }
+  }
+
+  for (let item of items) {
+    if (
+      leopard.x < item.x + item.width &&
+      leopard.x + leopard.width > item.x &&
+      leopard.y < item.y + item.height &&
+      leopard.y + leopard.height > item.y
+    ) {
+      if (!item.isCollectible) {
+        lives--;
+        blinkTimer = 2000;
+        if (lives <= 0) isGameOver = true;
+      } else {
+        score++;
+        if (score >= 60) {
+          isGameOver = true;
+          win = true;
         }
-      });
-  </script>
+      }
+      item.x = -999;
+    }
+  }
+
+  
+  if (blinkTimer > 0) {
+    blinkTimer -= 16.66; // приблизно 60 кадрів/сек
+    blinkState = Math.floor(blinkTimer / 333) % 2 === 0;
+  } else {
+    blinkState = true;
+  }
+    
+}
+
+
+function draw() {
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  if (!isGameStarted) return drawStartScreen();
+  drawBackground();
+  drawLeopard();
+  if (!isGameOver) drawItems();
+  ctx.fillStyle = "white";
+  ctx.font = "20px VT323";
+  ctx.fillText("Lives: " + lives, 20, 30);
+  ctx.fillText("N1: " + score, 20, 60);
+  if (isGameOver) {
+    if (win) ctx.fillText("🎉 YOU WIN!", canvas.width / 2 - 60, canvas.height / 2 - 100);
+    drawGameOverScreen();
+  }
+}
+
+function gameLoop() {
+  update();
+  draw();
+  requestAnimationFrame(gameLoop);
+}
+
+document.addEventListener("mousedown", (e) => {
+  const { offsetX, offsetY } = e;
+  if (!isGameStarted &&
+      offsetX >= canvas.width/2 - 150 &&
+      offsetX <= canvas.width/2 + 150 &&
+      offsetY >= canvas.height/2 - 80 &&
+      offsetY <= canvas.height/2 + 80) {
+    isGameStarted = true;
+    return;
+  }
+  if (isGameOver &&
+      offsetX >= canvas.width/2 - 150 &&
+      offsetX <= canvas.width/2 + 150 &&
+      offsetY >= canvas.height/2 - 80 &&
+      offsetY <= canvas.height/2 + 80) {
+    resetGame();
+    return;
+  }
+  const now = Date.now();
+  if (!isJumping && isGameStarted && !isGameOver) {
+    if (now - lastJump < 250) {
+      leopard.dy = jumpPower * 1.4;
+    } else {
+      leopard.dy = jumpPower;
+    }
+    lastJump = now;
+    isJumping = true;
+  }
+});
+
+document.addEventListener("keydown", (e) => {
+  if (!isGameStarted || isGameOver) return;
+  if (e.key === "Shift") {
+    shiftSpeed = 8;
+  }
+  if (e.key === "ArrowUp" || e.key === " ") {
+    if (!isJumping) {
+      leopard.dy = jumpPower;
+      isJumping = true;
+    }
+  }
+  if (e.key === "ArrowRight") {
+    leopard.x += 10;
+  }
+  if (e.key === "ArrowLeft") {
+    leopard.x -= 10;
+    if (leopard.x < 0) leopard.x = 0;
+  }
+});
+
+setInterval(spawnItems, 2600);
+setInterval(() => { if (isGameStarted && !isGameOver) currentStage++; }, 25000);
+setInterval(() => { if (isGameStarted && !isGameOver) leopard.frameIndex = (leopard.frameIndex + 1) % 4; }, 200);
+
+gameLoop();
+</script>
 </body>
 </html>
