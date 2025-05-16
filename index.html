@@ -1,0 +1,44 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Snow Leopard Run</title>
+  <style>
+    body {
+      margin: 0;
+      background: #000;
+      overflow: hidden;
+      font-family: monospace;
+      color: white;
+      text-align: center;
+    }
+    #counter {
+      padding: 10px;
+      font-size: 18px;
+    }
+    canvas {
+      display: block;
+      margin: auto;
+      background: #111;
+      image-rendering: pixelated;
+    }
+  </style>
+</head>
+<body>
+  <div id="counter">Loading player count...</div>
+  <canvas id="gameCanvas" width="800" height="400"></canvas>
+
+  <script>
+    fetch('https://counterapi.dev/api/snowleopard-players')
+      .then(res => res.json())
+      .then(data => {
+        const counterDiv = document.getElementById("counter");
+        if (counterDiv) {
+          counterDiv.innerText = "Total unique players: " + data.count;
+        }
+      });
+  </script>
+</body>
+</html>
